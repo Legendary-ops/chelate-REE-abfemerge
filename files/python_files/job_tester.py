@@ -94,34 +94,8 @@ def important_jobs(job):
             test_passed = True
     return test_passed
 
-############################__JOB_SPECIFIC_FUNCTIONS__############################
+############################__BUILD_JOBS__############################
 
-
-@FlowProject.label
-def inits_written(job):
-    with(job):
-        check_these_files = return_file_with_extensions(file_names=['init'],extension_list = extension_list_inits)
-        return test_existence_simple(job,check_these_files)
-    
-
-@FlowProject.label
-def mdps_written(job):
-    with(job):
-        check_these_files = return_file_with_extensions(file_names=[names.NAME_EQ_NVT,
-                                                                    names.NAME_EQ_SURFTEN,names.NAME_PRO_SURFTEN],extension_list = ['.mdp'])
-        return test_existence_simple(job,check_these_files)
-    
-    
-@FlowProject.label
-def build_input_starter(job):
-    with(job):
-        starter_bool = not(inits_written(job)) and not(mdps_written(job))
-        return starter_bool
-    
-    
-##################################################################################
-
-# --- Active Workflow Condition & Label Functions ---
 
 @FlowProject.label
 def init_written(job):
@@ -148,18 +122,24 @@ def mdp_written(job):
                 break
     return test_passed
 
+    
+    
+##################################################################################
+
+# --- Active Workflow Condition & Label Functions ---
 
 @FlowProject.label
-def select_metals(job):
+def pre_equilibrated(job):
     with job:
         test_passed = False
-        metals_to_run = ['Fe', 'Gd', 'Hf']
-        for metal in metals_to_run:
-            if job.sp.metal == metal:
-                test_passed = True
-                break
+        if job.isfile(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro"):
+            with open(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro", "r") as file_with_lines:
+                lines = file_with_lines.readlines()
+            for single_line in lines:
+                if job.sp.metal in single_line:
+                    test_passed = True
+                    break
     return test_passed
-
 
 @FlowProject.label
 def eq_nvt_post(job):

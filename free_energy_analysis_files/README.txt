@@ -1,7 +1,8 @@
 put .sh file inside workspace and run it. it should make a new directory 000000_analysis/Element_name
 ensure that the element Element_name inside the .sh on line: destination_folder="000000_analysis/Element_name" 
-is replaced with the name of the element you're trying to extract the .xvg files for. Also ensure that the 
-folders specified at the top of the file, are the same as the statepoint id that correspond to the element name,
+is replaced with the name of the element you're trying to extract the .xvg files for. If the 000000_analysis/Element_name dirs
+are not auto create it, do it yourself with mkdir command. Also ensure that the folders specified at the top of the file, 
+are the same as the statepoint id that correspond to the element name,
 the information on statepoint id can be found in legend.txt. Meaning if you're trying to extract data for Yttrium (Y)
 change destination_folder="000000_analysis/Element_name" -> destination_folder="000000_analysis/Y" and ensure that the
 folder IDs match the statepoints:

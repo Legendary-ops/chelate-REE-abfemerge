@@ -29,16 +29,14 @@ from files.python_files import misc_funct
 from files.python_files.job_tester import (
     init_written,
     mdp_written,
-    select_metals,
     eq_nvt_post,
     eq_npt_post_beren,
+    pre_equilibrated,
     eq_canon_post,
     pro_canon_post,
     free_energy_bar_copied,
     data_collected
 )
-
-GROMACS_PREFIX = 'gmx' # "/usr/local/gromacs/bin/gmx"
 
 # Cores configuration
 BUILD_CORES = 1
@@ -50,6 +48,8 @@ MIN_HOURS = 2.0
 MID_HOURS = 8.0
 DAY_WAIT = 24.0
 TWO_DAYS = 48.0
+ONE_WEEK = 168.0
+TWO_WEEKS = 336.0
 
 
 project = signac.get_project()
@@ -59,9 +59,8 @@ class Custom_environment(DefaultSlurmEnvironment):
     template = "v3_2025_gpu_potoff.sh"
 
 
-@FlowProject.pre(init_written)
-@FlowProject.pre(mdp_written)
-@FlowProject.post(eq_nvt_post)
+@FlowProject.post(init_written)
+@FlowProject.post(mdp_written)
 @FlowProject.operation(directives={"np": int(BUILD_CORES), "ngpu": 0, "memory": 3.2, "walltime": MIN_HOURS})
 def build_input(job):
     with job:
@@ -90,8 +89,15 @@ def build_input(job):
             box=[3.8, 3.8, 3.8]
         )
 
-        water_mol = Molecule.from_smiles('O')
-        cl_mol = Molecule.from_smiles('[Cl-]')
+        water_rd = Chem.MolFromMol2File(
+            f'{names.PROJECT_DIR}/files/coordinates/TIP3P.mol2', removeHs=False
+        )
+        water_mol = Molecule.from_rdkit(water_rd)
+        cl_rd = Chem.MolFromMol2File(
+            f'{names.PROJECT_DIR}/files/coordinates/neutralizing_anions/Cl.mol2', removeHs=False
+        )
+        cl_mol = Molecule.from_rdkit(cl_rd)
+        cl_mol.atoms[0].formal_charge = -1 * unit.elementary_charge
         cation_rd = Chem.MolFromMol2File(
             f'{names.PROJECT_DIR}/files/coordinates/metal_cations/{job.sp.metal}.mol2', removeHs=False
         )
@@ -110,8 +116,44 @@ def build_input(job):
         if os.path.exists('init_pointenergy.mdp'):
             os.remove('init_pointenergy.mdp')
 
-    current_lambda = names.eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
+        # pre-equilibration templating from EQ_NPT_BERENDSEN.gro
+        shutil.copy(
+            f"{names.PROJECT_DIR}/files/coordinates/equilibrated_frames/{names.NAME_EQ_NPT_BERENDSEN}.gro",
+            f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro"
+        )
+        
+        system_mb = mbuild.load(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+        #### cation_mb = mbuild.load(
+        ####     f"{names.PROJECT_DIR}/files/coordinates/metal_cations/{job.sp.metal}.mol2"
+        #### )
+        #### cation_mb.name = job.sp.metal
+        
+        # locate Nd placeholder
+        nd = next(
+            particle for particle in system_mb.particles()
+            if particle.name == "Nd" or particle.element.symbol == "Nd"
+        )
+        
+        # place replacement cation at Nd coordinates
+        cation_mb.translate_to(nd.pos)
+        # remove Nd particle
+        system_mb.remove(nd)
+        
+        # insert replacement
+        system_mb.add(cation_mb)
+        system_mb.save("PRE_EQ_NPT_BERENDSEN.gro")
 
+    local_eleLam_ljLam_to_initLam = names.eleLam_ljLam_to_initLam
+    current_lambda = local_eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
+    sorted_lambda_states = sorted(
+    local_eleLam_ljLam_to_initLam.items(),
+    key=lambda x: x[1]
+    )
+
+    lambda_index = " ".join(f"{idx:>6}"      for (ele_lj, idx) in sorted_lambda_states)
+    coul_lambdas = " ".join(f"{ele:>6.3f}"   for (ele, lj), idx in sorted_lambda_states)
+    vdw_lambdas  = " ".join(f"{lj:>6.3f}"    for (ele, lj), idx in sorted_lambda_states)
+    
     parameters = {
         "integrator": "sd",
         "dt": 0.001,
@@ -165,7 +207,10 @@ def build_input(job):
         "nstcalcenergy": names.NORMAL_CALC,
         "current_lambda": current_lambda,
         "molecule_of_interest": job.sp.metal,
-        "nstdhdl": int(names.NORMAL_CALC * 10)
+        "nstdhdl": int(names.NORMAL_CALC * 10),
+        "lambda_index" : lambda_index,
+        "coul_lambdas" : coul_lambdas,
+        "vdw_lambdas"  : vdw_lambdas,
     })
 
     misc_funct.simple_mdp_writer(
@@ -174,7 +219,7 @@ def build_input(job):
         parameters=parameters,
         constraints=None,
         templates_dir=f'{names.PROJECT_DIR}/files/mdp/',
-        template_name='free_energy_NPTmdp_template.mdp'
+        template_name='free_energy_Canonical_mdp_template.mdp'
     )
 
     parameters.update({
@@ -183,7 +228,10 @@ def build_input(job):
         "nstcalcenergy": names.NORMAL_CALC,
         "current_lambda": current_lambda,
         "molecule_of_interest": job.sp.metal,
-        "nstdhdl": int(names.NORMAL_CALC * 10)
+        "nstdhdl": int(names.NORMAL_CALC * 10),
+        "lambda_index" : lambda_index,
+        "coul_lambdas" : coul_lambdas,
+        "vdw_lambdas"  : vdw_lambdas,
     })
 
     misc_funct.simple_mdp_writer(
@@ -192,41 +240,42 @@ def build_input(job):
         parameters=parameters,
         constraints=None,
         templates_dir=f'{names.PROJECT_DIR}/files/mdp/',
-        template_name='free_energy_NPTmdp_template.mdp'
+        template_name='free_energy_Canonical_mdp_template.mdp'
     )
 
 
-@FlowProject.pre(init_written)
-@FlowProject.pre(mdp_written)
-@FlowProject.post(eq_nvt_post)
-@FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": MID_HOURS}, with_job=True, cmd=True)
-def EQ_NVT(job):
-    build_mdp = str(f'{GROMACS_PREFIX} grompp -f {names.NAME_EQ_NVT}.mdp -c init.gro -p init.top -o {names.NAME_EQ_NVT}.tpr -maxwarn 999')
-    run_gmx = str(f'{GROMACS_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NVT}')
-    run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
-    return run_command
+# @FlowProject.pre(init_written)
+# @FlowProject.pre(mdp_written)
+# @FlowProject.post(eq_nvt_post)
+# @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": MID_HOURS}, with_job=True, cmd=True)
+# def EQ_NVT(job):
+#     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NVT}.mdp -c init.gro -p init.top -o {names.NAME_EQ_NVT}.tpr -maxwarn 99')
+#     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NVT}')
+#     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
+#     return run_command
+# 
+# 
+# @FlowProject.pre(init_written)
+# @FlowProject.pre(mdp_written)
+# @FlowProject.pre(eq_nvt_post)
+# @FlowProject.post(eq_npt_post_beren)
+# @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
+# def EQ_NPT_BERENDSEN(job):
+#     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NPT_BERENDSEN}.mdp -c {names.NAME_EQ_NVT}.gro -p init.top -o {names.NAME_EQ_NPT_BERENDSEN}.tpr -maxwarn 99')
+#     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NPT_BERENDSEN}')
+#     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
+#     return run_command
 
 
 @FlowProject.pre(init_written)
 @FlowProject.pre(mdp_written)
-@FlowProject.pre(eq_nvt_post)
-@FlowProject.post(eq_npt_post_beren)
-@FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
-def EQ_NPT_BERENDSEN(job):
-    build_mdp = str(f'{GROMACS_PREFIX} grompp -f {names.NAME_EQ_NPT_BERENDSEN}.mdp -c {names.NAME_EQ_NVT}.gro -p init.top -o {names.NAME_EQ_NPT_BERENDSEN}.tpr -maxwarn 999')
-    run_gmx = str(f'{GROMACS_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NPT_BERENDSEN}')
-    run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
-    return run_command
-
-
-@FlowProject.pre(init_written)
-@FlowProject.pre(mdp_written)
-@FlowProject.pre(eq_npt_post_beren)
+@FlowProject.pre(pre_equilibrated)
 @FlowProject.post(eq_canon_post)
 @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
 def EQ_CANON(job):
-    build_mdp = str(f'{GROMACS_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 999')
-    run_gmx = str(f'{GROMACS_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_CANON}')
+    #build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
+    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_PRE_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
+    run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_CANON}')
     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
     return run_command
 
@@ -237,8 +286,8 @@ def EQ_CANON(job):
 @FlowProject.post(pro_canon_post)
 @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
 def PRO_CANON(job):
-    build_mdp = str(f'{GROMACS_PREFIX} grompp -f {names.NAME_PRO_CANON}.mdp -c {names.NAME_EQ_CANON}.gro -p init.top -o {names.NAME_PRO_CANON}.tpr -maxwarn 999')
-    run_gmx = str(f'{GROMACS_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_PRO_CANON}')
+    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_PRO_CANON}.mdp -c {names.NAME_EQ_CANON}.gro -p init.top -o {names.NAME_PRO_CANON}.tpr -maxwarn 99')
+    run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_PRO_CANON}')
     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
     return run_command
 
@@ -247,14 +296,14 @@ def PRO_CANON(job):
 @FlowProject.pre(mdp_written)
 @FlowProject.pre(pro_canon_post)
 @FlowProject.post(free_energy_bar_copied)
-@FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 0, "memory": 3.2, "walltime": MIN_HOURS}, with_job=True, cmd=True)
+@FlowProject.operation(directives={"np": int(1), "ngpu": 0, "memory": 3.2, "walltime": MIN_HOURS}, with_job=True, cmd=True)
 def FREE_ENERGY_FILES_RENAMED(job):
     current_lambda = names.eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
     run_command = str(f'cp {names.NAME_PRO_CANON}.xvg {names.NAME_PRO_CANON}_{current_lambda}.xvg')
     return run_command
 
 
-@FlowProject.pre(data_collected)  # DUMMY TO AVOID THE JOB
+# @FlowProject.pre(data_collected)  # DUMMY TO AVOID THE JOB
 @FlowProject.pre(free_energy_bar_copied)
 @FlowProject.pre(pro_canon_post)
 @FlowProject.post(data_collected)
@@ -280,7 +329,7 @@ def GRAPH_AND_COLLECT_PROPERTIES(job):
 
         gromacs_input = b'1\n0\n'
         result = subprocess.run(
-            [f"{GROMACS_PREFIX}", "energy", "-f", f"{names.NAME_PRO_CANON}.edr", "-o", "dummy_data.xvg"],
+            [f"{names.GMX_PREFIX}", "energy", "-f", f"{names.NAME_PRO_CANON}.edr", "-o", "dummy_data.xvg"],
             input=gromacs_input,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT
@@ -301,7 +350,7 @@ def GRAPH_AND_COLLECT_PROPERTIES(job):
         newline_string = "\n".join(str(results[prop]) for prop in properties_of_interest if prop in results)
 
         p = subprocess.Popen(
-            [f'{GROMACS_PREFIX}', '-quiet', 'energy', '-f', f'{names.NAME_PRO_CANON}.edr', '-o', f'{names.GENERAL_LOCAL_DATA}_{names.NAME_PRO_CANON}.xvg'],
+            [f'{names.GMX_PREFIX}', '-quiet', 'energy', '-f', f'{names.NAME_PRO_CANON}.edr', '-o', f'{names.GENERAL_LOCAL_DATA}_{names.NAME_PRO_CANON}.xvg'],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE
         )

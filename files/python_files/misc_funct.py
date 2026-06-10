@@ -48,7 +48,7 @@ def simple_mdp_writer(job, mdp_name, parameters, constraints=None, templates_dir
             'constraint_algorithm_string' : 'constraint-algorithm = ',
             'constraint_algorithm' : 'LINCS',
             'lincs_order_string' : 'lincs-order           = ',
-            'lincs_order' : '6'
+            'lincs_order' : '4'
         }
     elif 'shake' in constraints:
         update_dict = {

@@ -24,7 +24,7 @@ dir = '.'
 UNIT_INPUT = 'kJ/mol'
 SIMULATION_TEMPERATURE = 298.0
 
-file_pattern = '**/PRO_NPT_PARRINELLO_*.xvg'
+file_pattern = '**/PRO_CANON_*.xvg'
 
 GENERAL_FILE_PREFIX = 'alchemlyb_HFE'
 
@@ -72,6 +72,50 @@ dHdl_result = TI().fit(cat_decorrelated_dhdl_list)
 num_mbar_states = len(mbar_result.states_)
 num_dHdl_states = len(dHdl_result.states_)
 
+# Verify coupling state from any .mdp file in the directory
+import glob
+mdp_files = glob.glob('*.mdp')
+couple_lambda0 = None
+couple_lambda1 = None
+
+if mdp_files:
+    mdp_file = mdp_files[0]
+    print(f"Reading MDP file: {mdp_file}")
+    with open(mdp_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith(';') or line.startswith('#'):
+                continue
+            if 'couple-lambda0' in line:
+                parts = line.split('=')
+                if len(parts) > 1:
+                    couple_lambda0 = parts[1].split(';')[0].strip().lower()
+            elif 'couple-lambda1' in line:
+                parts = line.split('=')
+                if len(parts) > 1:
+                    couple_lambda1 = parts[1].split(';')[0].strip().lower()
+    print(f"Found couple-lambda0: {couple_lambda0}")
+    print(f"Found couple-lambda1: {couple_lambda1}")
+else:
+    print("Warning: No .mdp files found in the current directory. Cannot automatically verify the coupling state order.")
+    print("Defaulting to sign flip (assuming state 0 is coupled and state 18 is decoupled).")
+
+# Determine sign flip
+sign_flip = True  # Default assuming state 18 is decoupled
+if couple_lambda0 is not None or couple_lambda1 is not None:
+    if couple_lambda0 == 'none':
+        sign_flip = False
+    elif couple_lambda1 == 'none':
+        sign_flip = True
+
+# Conversion factors: kT to kJ/mol
+conversion_factor = SIMULATION_TEMPERATURE * 8.314 / 1000.0
+sign_mult = -1.0 if sign_flip else 1.0
+total_factor = conversion_factor * sign_mult
+
+print(f"Conversion factor: {conversion_factor:.6f} kJ/mol per kT")
+print(f"Sign flip applied: {sign_flip} (multiplier: {sign_mult})")
+
 data_dict = {"name": [], "state": []}
 
 for i in range(num_mbar_states-1):
@@ -94,9 +138,9 @@ mbar_d_delta_f_ = mbar_result.d_delta_f_
 data_dict['MBAR'] = []
 data_dict['MBAR_Error'] = []
 
-for index in range(1, num_dHdl_states):
-    data_dict['MBAR'].append(mbar_delta_f_.iloc[index - 1, index])
-    data_dict['MBAR_Error'].append(mbar_d_delta_f_.iloc[index - 1, index])
+for index in range(1, num_mbar_states):
+    data_dict['MBAR'].append(mbar_delta_f_.iloc[index - 1, index] * total_factor)
+    data_dict['MBAR_Error'].append(mbar_d_delta_f_.iloc[index - 1, index] * conversion_factor)
     
 for index, stage in enumerate(stages):
     if len(stages) == 1:
@@ -114,76 +158,54 @@ for index, stage in enumerate(stages):
             start = num_mbar_states - start - 1
             end = states.index(lambda_max)
             
-    result = mbar_delta_f_.iloc[start, end]
-    error = mbar_d_delta_f_.iloc[start, end]
+    result = mbar_delta_f_.iloc[start, end] * total_factor
+    error = mbar_d_delta_f_.iloc[start, end] * conversion_factor
     data_dict['MBAR'].append(result)
     data_dict['MBAR_Error'].append(error)
-    
-padding_needed = len(data_dict['name']) - len(data_dict['MBAR'])
-if padding_needed < 1:
-    del padding_needed
 
-if padding_needed:
-    for i in range(+1):
-        data_dict['MBAR'].append(' ')  
-        data_dict['MBAR_Error'].append(' ')
-
-## print(f"len(data_dict['name']): {len(data_dict['name'])}")
-## print(f"len(data_dict['state']): {len(data_dict['state'])}")
-## 
-## print(f"len(data_dict['MBAR']): {len(data_dict['MBAR'])}")
-## print(f"len(data_dict['MBAR_Error']): {len(data_dict['MBAR_Error'])}")
+# Appending TOTAL (the last row)
+total_result = mbar_delta_f_.iloc[0, num_mbar_states - 1] * total_factor
+total_error = mbar_d_delta_f_.iloc[0, num_mbar_states - 1] * conversion_factor
+data_dict['MBAR'].append(total_result)
+data_dict['MBAR_Error'].append(total_error)
 
 summary = pd.DataFrame.from_dict(data_dict)
 summary = summary.set_index(["state", "name"])
-#summary = summary[col_names]
 summary.index.names = [None, None]
-#converter = get_unit_converter(UNIT_INPUT)
-converter_with_attrs = get_unit_converter(UNIT_INPUT)(mbar_result.delta_f_) # (dHdl_result.delta_f_.attrs)
-converter_with_attrs = mbar_result.delta_f_.attrs
-summary.attrs = mbar_result.delta_f_.attrs
-
-#summary = converter(summary)
-
 summary = summary.to_string()
 
 summary_txt = open(f'{GENERAL_FILE_PREFIX}.txt','w')
-
-summary_txt.write(f'Currently in kT units. \n')
-summary_txt.write(f'Multiply by  ({SIMULATION_TEMPERATURE} * 8.314 / 1000) \n')
-
-#for i in summary:
-#    summary_txt.write(f'{i} \n')
-
+summary_txt.write(f'Free energy results in kJ/mol (converted from kT at T = {SIMULATION_TEMPERATURE} K).\n')
+if not mdp_files:
+    summary_txt.write(f'WARNING: No .mdp files found in the current directory. Assuming state 0 is coupled and state 18 is decoupled (sign flip applied).\n')
+summary_txt.write(f'Sign flip applied: {sign_flip} (Target: Solvation/Hydration free energy).\n\n')
 summary_txt.write(f'{summary}\n\n\n______________________________________________________________\n\n\n')
 
 ######______________________________________________________________######
 
-data_dict = {"name": [], "state": []}
+data_dict_ti = {"name": [], "state": []}
 
 for i in range(num_dHdl_states-1):
-    data_dict["name"].append(str(i) + " -- " + str(i + 1))
-    data_dict["state"].append("States")
-
-stages =  dHdl_list[0].reset_index("time").index.names
+    data_dict_ti["name"].append(str(i) + " -- " + str(i + 1))
+    data_dict_ti["state"].append("States")
 
 for stage in stages:
-    data_dict["name"].append(stage.split("-")[0])
-    data_dict["state"].append("Stages")
+    data_dict_ti["name"].append(stage.split("-")[0])
+    data_dict_ti["state"].append("Stages")
     
-data_dict["name"].append("TOTAL")
-data_dict["state"].append("Stages")
+data_dict_ti["name"].append("TOTAL")
+data_dict_ti["state"].append("Stages")
 
 col_names = ['TI','TI_Error']
 dHdl_delta_f_ = dHdl_result.delta_f_
 dHdl_d_delta_f_ = dHdl_result.d_delta_f_
 
-data_dict['TI'] = []
-data_dict['TI_Error'] = []
+data_dict_ti['TI'] = []
+data_dict_ti['TI_Error'] = []
 
 for index in range(1, num_dHdl_states):
-    data_dict['TI'].append(dHdl_delta_f_.iloc[index - 1, index])
-    data_dict['TI_Error'].append(dHdl_d_delta_f_.iloc[index - 1, index])
+    data_dict_ti['TI'].append(dHdl_delta_f_.iloc[index - 1, index] * total_factor)
+    data_dict_ti['TI_Error'].append(dHdl_d_delta_f_.iloc[index - 1, index] * conversion_factor)
     
 for index, stage in enumerate(stages):
     if len(stages) == 1:
@@ -201,40 +223,26 @@ for index, stage in enumerate(stages):
             start = num_dHdl_states - start - 1
             end = states.index(lambda_max)
             
-    result = dHdl_delta_f_.iloc[start, end]
-    error = dHdl_d_delta_f_.iloc[start, end]
-    data_dict['TI'].append(result)
-    data_dict['TI_Error'].append(error)
-    
-padding_needed = len(data_dict['name']) - len(data_dict['TI'])
-if padding_needed < 1:
-    del padding_needed
+    result = dHdl_delta_f_.iloc[start, end] * total_factor
+    error = dHdl_d_delta_f_.iloc[start, end] * conversion_factor
+    data_dict_ti['TI'].append(result)
+    data_dict_ti['TI_Error'].append(error)
 
-if padding_needed:
-    for i in range(+1):
-        data_dict['TI'].append(' ')  
-        data_dict['TI_Error'].append(' ')
-        
-summary = pd.DataFrame.from_dict(data_dict)
-summary = summary.set_index(["state", "name"])
-#summary = summary[col_names]
-summary.index.names = [None, None]
-#converter = get_unit_converter(UNIT_INPUT)
-converter_with_attrs = get_unit_converter(UNIT_INPUT)(dHdl_result.delta_f_) # (mbar_result.delta_f_.attrs)
-converter_with_attrs = dHdl_result.delta_f_.attrs
-summary.attrs = mbar_result.delta_f_.attrs
+# Appending TOTAL (the last row)
+total_result_ti = dHdl_delta_f_.iloc[0, num_dHdl_states - 1] * total_factor
+total_error_ti = dHdl_d_delta_f_.iloc[0, num_dHdl_states - 1] * conversion_factor
+data_dict_ti['TI'].append(total_result_ti)
+data_dict_ti['TI_Error'].append(total_error_ti)
 
-#summary = converter(summary)
-
-summary = summary.to_string()
+summary_ti = pd.DataFrame.from_dict(data_dict_ti)
+summary_ti = summary_ti.set_index(["state", "name"])
+summary_ti.index.names = [None, None]
+summary_ti = summary_ti.to_string()
 
 summary_txt.write(f'\n\n\n')
 summary_txt.write(f'______________________________________________________________')
 summary_txt.write(f'\n\n\n')
-
-summary_txt.write(f'{summary}')
-#for i in summary:
-#    summary_txt.write(f'{i} \n')
+summary_txt.write(f'{summary_ti}')
 summary_txt.close()
 
 #summary_txt = open(f'{GENERAL_FILE_PREFIX}.txt','w')
@@ -254,7 +262,7 @@ fig.savefig(f'{GENERAL_FILE_PREFIX}_{STATE_ROOT}_{TI_SUFFIX}with{MBAR_SUFFIX}.pn
 
 del ax, fig
 
-convergence = forward_backward_convergence(u_nk_list, 'MBAR', num=num_mbar_states-1)
+convergence = forward_backward_convergence(u_nk_list, 'MBAR', num=min(10, len(u_nk_list[0])))
 
 unit_converted_convergence = get_unit_converter(UNIT_INPUT)(convergence)
 unit_converted_convergence["data_fraction"] = convergence["data_fraction"]
