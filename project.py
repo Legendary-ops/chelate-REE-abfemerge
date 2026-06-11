@@ -46,7 +46,7 @@ from files.python_files.job_tester import (
 
 # Cores configuration
 BUILD_CORES = 1
-SIM_CORES = 7
+SIM_CORES = 6
 ANA_CORES = 1
 
 # Walltimes configuration
@@ -92,22 +92,22 @@ def build_input(job):
         cation_mb.name = job.sp.metal
         cl_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/neutralizing_anions/Cl.mol2')
         cl_mb.name = 'Cl'
-        polypeptide_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.pdb')
-        stringstorage = job.sp.polypeptide
-        stringstorage = "P" + stringstorage[3:]
-        polypeptide_mb.name = stringstorage
-        polypeptide_mb.save('polypeptide_input.pdb', overwrite = True)
+        ##peptideFlag polypeptide_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.pdb')
+        ##peptideFlag stringstorage = job.sp.polypeptide
+        ##peptideFlag stringstorage = "P" + stringstorage[3:]
+        ##peptideFlag polypeptide_mb.name = stringstorage
+        ##peptideFlag .save('polypeptide_input.pdb', overwrite = True)
 
         box_length = 10.0
 
         starting_box = mbuild.fill_box(
-            compound=[tip3p_mb, cation_mb, cl_mb, polypeptide_mb],
-            n_compounds=[1000, 1, counterion_count, 1],
+            compound=[tip3p_mb, cation_mb, cl_mb], ##peptideFlag , polypeptide_mb],
+            n_compounds=[1000, 1, counterion_count], ##peptideFlag , 1],
             # box=[3.8, 3.8, 3.8]
             box=[box_length, box_length, box_length]
         )
         
-        starting_box.save('polypeptide_box.pdb', overwrite = True)
+        ##peptideFlag starting_box.save('polypeptide_box.pdb', overwrite = True)
 
         water_rd = Chem.MolFromMol2File(
             f'{names.PROJECT_DIR}/files/coordinates/TIP3P.mol2', removeHs=False
@@ -124,18 +124,21 @@ def build_input(job):
         cation_mol = Molecule.from_rdkit(cation_rd)
         cation_mol.atoms[0].formal_charge = names.METAL_FORMAL_CHARGES[job.sp.metal] * unit.elementary_charge
 
-        polypeptide_rd = Chem.MolFromMol2File(
-            f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.mol2', removeHs=False
-        )
-        polypeptide_mol = Molecule.from_rdkit(polypeptide_rd)
+        ##peptideFlag polypeptide_rd = Chem.MolFromMol2File(
+        ##peptideFlag     f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.mol2', removeHs=False
+        ##peptideFlag )
+        ##peptideFlag polypeptide_mol = Molecule.from_rdkit(polypeptide_rd)
         
 
-        mols = [water_mol] * 1000 + [cation_mol] + [cl_mol] * counterion_count + [polypeptide_mol]
+        ##peptideFlag mols = [water_mol] * 1000 + [cation_mol] + [cl_mol] * counterion_count + [polypeptide_mol]
+        ##peptideFlag topology = Topology.from_molecules(mols)
+        ##peptideFlag topology.box_vectors = np.eye(3) * box_length * unit.nanometer
+        mols = [water_mol] * 1000 + [cation_mol] + [cl_mol] * counterion_count 
         topology = Topology.from_molecules(mols)
         topology.box_vectors = np.eye(3) * box_length * unit.nanometer
 
         ff = ForceField(
-            'ff14sb_off_impropers_0.0.4.offxml',   # protein residue typing + library charges
+            ##peptideFlag 'ff14sb_off_impropers_0.0.4.offxml',   # protein residue typing + library charges
             'tip3p.offxml',                          # water
             f'{names.PROJECT_DIR}/files/xml/custom_ree.offxml'  # your REE ions
         )
@@ -152,27 +155,35 @@ def build_input(job):
             f"{names.PROJECT_DIR}/files/coordinates/equilibrated_frames/{names.NAME_EQ_NPT_BERENDSEN}.gro",
             f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro"
         )
-        
-        system_mb = mbuild.load(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+
+        import MDAnalysis as mda
+        u = mda.Universe(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+        nd = u.select_atoms("name Nd")
+        nd.names = [job.sp.metal]
+        nd.residues.resnames = [job.sp.metal]
+        u.atoms.write(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+
+        ####system_mb = mbuild.load(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
         #### cation_mb = mbuild.load(
         ####     f"{names.PROJECT_DIR}/files/coordinates/metal_cations/{job.sp.metal}.mol2"
         #### )
         #### cation_mb.name = job.sp.metal
         
-        # locate Nd placeholder
-        nd = next(
-            particle for particle in system_mb.particles()
-            if particle.name == "Nd" or particle.element.symbol == "Nd"
-        )
-        
-        # place replacement cation at Nd coordinates
-        cation_mb.translate_to(nd.pos)
-        # remove Nd particle
-        system_mb.remove(nd)
-        
-        # insert replacement
-        system_mb.add(cation_mb)
-        system_mb.save("PRE_EQ_NPT_BERENDSEN.gro")
+        #### # locate Nd placeholder
+        #### surrogate_Nd = next(
+        ####     particle for particle in system_mb.particles()
+        ####     if particle.name == "Nd" or particle.element.symbol == "Nd"
+        #### )
+        #### surrogate_Nd.name = cation_mb.name
+        #### surrogate_Nd.element = cation_mb.element
+        ## place replacement cation at Nd coordinates
+        ####cation_mb.translate_to(surrogate_Nd.pos)
+        #### remove Nd particle
+        ####system_mb.remove(surrogate_Nd)
+        ####
+        #### insert replacement
+        ####system_mb.add(cation_mb)
+        ####system_mb.save(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro", overwrite=True)
 
     local_eleLam_ljLam_to_initLam = names.eleLam_ljLam_to_initLam
     current_lambda = local_eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
@@ -275,37 +286,38 @@ def build_input(job):
     )
 
 
-@FlowProject.pre(init_written)
-@FlowProject.pre(mdp_written)
-@FlowProject.post(eq_nvt_post)
-@FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": MID_HOURS}, with_job=True, cmd=True)
-def EQ_NVT(job):
-    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NVT}.mdp -c init.gro -p init.top -o {names.NAME_EQ_NVT}.tpr -maxwarn 99')
-    run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NVT}')
-    run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
-    return run_command
+##peptideFlag @FlowProject.pre(eq_nvt_post)
+##peptideFlag @FlowProject.pre(init_written)
+##peptideFlag @FlowProject.pre(mdp_written)
+##peptideFlag @FlowProject.post(eq_nvt_post)
+##peptideFlag @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": MID_HOURS}, with_job=True, cmd=True)
+##peptideFlag def EQ_NVT(job):
+##peptideFlag     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NVT}.mdp -c init.gro -p init.top -o {names.NAME_EQ_NVT}.tpr -maxwarn 99')
+##peptideFlag     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NVT}')
+##peptideFlag     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
+##peptideFlag     return run_command
+##peptideFlag 
+##peptideFlag 
+##peptideFlag @FlowProject.pre(init_written)
+##peptideFlag @FlowProject.pre(mdp_written)
+##peptideFlag @FlowProject.pre(eq_nvt_post)
+##peptideFlag @FlowProject.post(eq_npt_post_beren)
+##peptideFlag @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
+##peptideFlag def EQ_NPT_BERENDSEN(job):
+##peptideFlag     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NPT_BERENDSEN}.mdp -c {names.NAME_EQ_NVT}.gro -p init.top -o {names.NAME_EQ_NPT_BERENDSEN}.tpr -maxwarn 99')
+##peptideFlag     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NPT_BERENDSEN}')
+##peptideFlag     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
+##peptideFlag     return run_command
 
 
 @FlowProject.pre(init_written)
 @FlowProject.pre(mdp_written)
-@FlowProject.pre(eq_nvt_post)
-@FlowProject.post(eq_npt_post_beren)
-@FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
-def EQ_NPT_BERENDSEN(job):
-    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NPT_BERENDSEN}.mdp -c {names.NAME_EQ_NVT}.gro -p init.top -o {names.NAME_EQ_NPT_BERENDSEN}.tpr -maxwarn 99')
-    run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NPT_BERENDSEN}')
-    run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
-    return run_command
-
-
-@FlowProject.pre(init_written)
-@FlowProject.pre(mdp_written)
-#@FlowProject.pre(pre_equilibrated)
+@FlowProject.pre(pre_equilibrated)
 @FlowProject.post(eq_canon_post)
 @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
 def EQ_CANON(job):
-    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
-    #build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_PRE_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
+    ##peptideFlag build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
+    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_PRE_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_CANON}')
     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
     return run_command
@@ -334,7 +346,7 @@ def FREE_ENERGY_FILES_RENAMED(job):
     return run_command
 
 
-# @FlowProject.pre(data_collected)  # DUMMY TO AVOID THE JOB
+@FlowProject.pre(data_collected)  # DUMMY TO AVOID THE JOB
 @FlowProject.pre(free_energy_bar_copied)
 @FlowProject.pre(pro_canon_post)
 @FlowProject.post(data_collected)

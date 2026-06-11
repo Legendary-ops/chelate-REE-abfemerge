@@ -64,16 +64,16 @@ METAL_FORMAL_CHARGES = {
 }
 
 # GROMACS MD steps and output controls
-SMALL_EQ_STEPS      = int(1000000)
+SMALL_EQ_STEPS      =int(20000)# int(1000000)
 # MID_EQ_STEPS renamed to follow SIM core naming standard
 MID_EQ_STEPS        = int(2000000)
 LONG_EQ_STEPS       = int(10000000)
-SLOW_OUTPUT         = int(20000)
+SLOW_OUTPUT         = int(1000) # 10000
 NORMAL_CALC         = int(100)
 
-PRO_STEPS             = int(500000)
-PRO_FREE_ENERGY_STEPS = int(500000)
-FAST_OUTPUT           = int(1000)
+PRO_STEPS             = int(20000)# int(500000)
+PRO_FREE_ENERGY_STEPS = int(20000)# int(500000)
+FAST_OUTPUT           = int(250) # 2000
 FAST_CALC             = int(100)
 
 ## # GROMACS MD steps and output controls
@@ -99,23 +99,23 @@ GENERAL_GLOBAL_DATA = 'aggregate_general_Data'
 # Electrostatic and LJ lambda mapping lookup dict (Renamed from ljLam_eleLam_to_initLam)
 # First element of the tuple is electrostatic lambda, second is Lennard-Jones lambda
 eleLam_ljLam_to_initLam = {
-(0.0,    0.0): 0,
-# (0.075,  0.0): 1,
-# (0.150,  0.0): 2,
-# (0.225,  0.0): 3,
-# (0.3,    0.0): 4,
-# (0.4,    0.0): 5,
-# (0.5,    0.0): 6,
-# (0.6,    0.0): 7,
-# (0.7,    0.0): 8,
-# (0.8,    0.0): 9,
-# (0.9,    0.0): 10,
-# (1.0,    0.0): 11,
-# (1.0,    0.1): 12,
-# (1.0,    0.25): 13,    
-# (1.0,    0.4):  14,
-# (1.0,    0.55): 15,    
-# (1.0,    0.7):  16,
-# (1.0,    0.85): 17,    
-# (1.0,    1.0):  18
+ (0.0,    0.0): 0,
+ (0.075,  0.0): 1,
+ (0.150,  0.0): 2,
+ (0.225,  0.0): 3,
+ (0.3,    0.0): 4,
+ (0.4,    0.0): 5,
+ (0.5,    0.0): 6,
+ (0.6,    0.0): 7,
+ (0.7,    0.0): 8,
+ (0.8,    0.0): 9,
+ (0.9,    0.0): 10,
+ (1.0,    0.0): 11,
+ (1.0,    0.1): 12,
+ (1.0,    0.25): 13,    
+ (1.0,    0.4):  14,
+ (1.0,    0.55): 15,    
+ (1.0,    0.7):  16,
+ (1.0,    0.85): 17,    
+ (1.0,    1.0):  18
     }

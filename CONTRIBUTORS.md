@@ -2,8 +2,10 @@
 
 The following individuals and artificial intelligence assistants have formally contributed to the development and maintenance of the **REE_HYDRA** workflow project:
 
-## Lead Developer
+## Lead Developers
 - **dyukovsm** <go0719@wayne.edu>
+- **Richard Hazinski**
+
 
 ## AI Co-Authors & Contributors
 - **Gemini** (Google DeepMind) — Pair programmer and architecture refactoring contributor.

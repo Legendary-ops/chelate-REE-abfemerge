@@ -1,3 +1,6 @@
-**/workflow/**/*.trr
-**/workflow/**/*.edr
-**/workflow/**/*.xtc
+**/workspace
+**/files/python_files/__pycache__
+**/legend.txt
+**/__pycache__
+**/aggregate_general_Data.txt
+**/signac_project_document.json
