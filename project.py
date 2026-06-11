@@ -11,16 +11,22 @@ Contributors:
 """
 
 import math
+# pyrefly: ignore [missing-import]
 import mbuild
+# pyrefly: ignore [missing-import]
 import numpy as np
+# pyrefly: ignore [missing-import]
 import signac
+# pyrefly: ignore [missing-import]
 from flow import FlowProject
+# pyrefly: ignore [missing-import]
 from flow.environment import DefaultSlurmEnvironment
 import os
 import shutil
 import subprocess
 import re
 import pandas as pd
+# pyrefly: ignore [missing-import]
 import matplotlib.pyplot as plt
 import io
 
@@ -65,9 +71,13 @@ class Custom_environment(DefaultSlurmEnvironment):
 def build_input(job):
     with job:
         import sys
+        # pyrefly: ignore [missing-import]
         from rdkit import Chem
+        # pyrefly: ignore [missing-import]
         from openff.toolkit import Molecule, Topology, ForceField
+        # pyrefly: ignore [missing-import]
         from openff.units import unit
+        # pyrefly: ignore [missing-import]
         import mbuild.packing
 
         conda_bin = os.path.dirname(sys.executable)
@@ -82,12 +92,22 @@ def build_input(job):
         cation_mb.name = job.sp.metal
         cl_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/neutralizing_anions/Cl.mol2')
         cl_mb.name = 'Cl'
+        polypeptide_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.pdb')
+        stringstorage = job.sp.polypeptide
+        stringstorage = "P" + stringstorage[3:]
+        polypeptide_mb.name = stringstorage
+        polypeptide_mb.save('polypeptide_input.pdb', overwrite = True)
+
+        box_length = 10.0
 
         starting_box = mbuild.fill_box(
-            compound=[tip3p_mb, cation_mb, cl_mb],
-            n_compounds=[1000, 1, counterion_count],
-            box=[3.8, 3.8, 3.8]
+            compound=[tip3p_mb, cation_mb, cl_mb, polypeptide_mb],
+            n_compounds=[1000, 1, counterion_count, 1],
+            # box=[3.8, 3.8, 3.8]
+            box=[box_length, box_length, box_length]
         )
+        
+        starting_box.save('polypeptide_box.pdb', overwrite = True)
 
         water_rd = Chem.MolFromMol2File(
             f'{names.PROJECT_DIR}/files/coordinates/TIP3P.mol2', removeHs=False
@@ -104,11 +124,22 @@ def build_input(job):
         cation_mol = Molecule.from_rdkit(cation_rd)
         cation_mol.atoms[0].formal_charge = names.METAL_FORMAL_CHARGES[job.sp.metal] * unit.elementary_charge
 
-        mols = [water_mol] * 1000 + [cation_mol] + [cl_mol] * counterion_count
-        topology = Topology.from_molecules(mols)
-        topology.box_vectors = np.eye(3) * 3.8 * unit.nanometer
+        polypeptide_rd = Chem.MolFromMol2File(
+            f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.mol2', removeHs=False
+        )
+        polypeptide_mol = Molecule.from_rdkit(polypeptide_rd)
+        
 
-        ff = ForceField('tip3p.offxml', f'{names.PROJECT_DIR}/files/xml/custom_ree.offxml')
+        mols = [water_mol] * 1000 + [cation_mol] + [cl_mol] * counterion_count + [polypeptide_mol]
+        topology = Topology.from_molecules(mols)
+        topology.box_vectors = np.eye(3) * box_length * unit.nanometer
+
+        ff = ForceField(
+            'ff14sb_off_impropers_0.0.4.offxml',   # protein residue typing + library charges
+            'tip3p.offxml',                          # water
+            f'{names.PROJECT_DIR}/files/xml/custom_ree.offxml'  # your REE ions
+        )
+        
         interchange = ff.create_interchange(topology)
         interchange.positions = starting_box.xyz * unit.nanometer
         interchange.to_gromacs(prefix='init')
