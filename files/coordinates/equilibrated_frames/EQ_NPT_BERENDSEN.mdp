@@ -3,7 +3,7 @@ integrator               = sd
 ;tinit                    = 0
 dt                       = 0.001
 comm-mode                = Linear
-nsteps                   = 4000000
+nsteps                   = 10000000
 nstcomm                  = 20000
 ; Output control
 nstxout                  = 20000 ; I had 50000 for long sims, default is arround 1000
