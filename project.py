@@ -1,5 +1,5 @@
 """
-REE_HYDRA signac workflow project.
+REE_HYDRATION signac workflow project.
 
 Rare earth element hydration free energy simulations using GROMACS
 with signac workflow management.
@@ -11,8 +11,6 @@ Contributors:
 """
 
 import math
-# pyrefly: ignore [missing-import]
-import mbuild
 # pyrefly: ignore [missing-import]
 import numpy as np
 # pyrefly: ignore [missing-import]
@@ -78,73 +76,223 @@ def build_input(job):
         # pyrefly: ignore [missing-import]
         from openff.units import unit
         # pyrefly: ignore [missing-import]
-        import mbuild.packing
+        from openff.interchange.components._packmol import pack_box
 
         conda_bin = os.path.dirname(sys.executable)
         os.environ['PATH'] = f'{conda_bin}:{os.environ.get("PATH", "")}'
-        mbuild.packing.PACKMOL = shutil.which('packmol')
 
         counterion_count = 4 if job.sp.metal in ('U', 'Hf') else 3
-
-        tip3p_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/TIP3P.mol2')
-        tip3p_mb.name = 'WAT'
-        cation_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/metal_cations/{job.sp.metal}.mol2')
-        cation_mb.name = job.sp.metal
-        cl_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/neutralizing_anions/Cl.mol2')
-        cl_mb.name = 'Cl'
-        ##peptideFlag polypeptide_mb = mbuild.load(f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.pdb')
-        ##peptideFlag stringstorage = job.sp.polypeptide
-        ##peptideFlag stringstorage = "P" + stringstorage[3:]
-        ##peptideFlag polypeptide_mb.name = stringstorage
-        ##peptideFlag .save('polypeptide_input.pdb', overwrite = True)
-
         box_length = 10.0
 
-        starting_box = mbuild.fill_box(
-            compound=[tip3p_mb, cation_mb, cl_mb], ##peptideFlag , polypeptide_mb],
-            n_compounds=[1000, 1, counterion_count], ##peptideFlag , 1],
-            # box=[3.8, 3.8, 3.8]
-            box=[box_length, box_length, box_length]
-        )
-        
-        ##peptideFlag starting_box.save('polypeptide_box.pdb', overwrite = True)
-
+        # Load small molecules via RDKit
         water_rd = Chem.MolFromMol2File(
             f'{names.PROJECT_DIR}/files/coordinates/TIP3P.mol2', removeHs=False
         )
         water_mol = Molecule.from_rdkit(water_rd)
+
         cl_rd = Chem.MolFromMol2File(
             f'{names.PROJECT_DIR}/files/coordinates/neutralizing_anions/Cl.mol2', removeHs=False
         )
         cl_mol = Molecule.from_rdkit(cl_rd)
         cl_mol.atoms[0].formal_charge = -1 * unit.elementary_charge
+
         cation_rd = Chem.MolFromMol2File(
             f'{names.PROJECT_DIR}/files/coordinates/metal_cations/{job.sp.metal}.mol2', removeHs=False
         )
         cation_mol = Molecule.from_rdkit(cation_rd)
         cation_mol.atoms[0].formal_charge = names.METAL_FORMAL_CHARGES[job.sp.metal] * unit.elementary_charge
 
-        ##peptideFlag polypeptide_rd = Chem.MolFromMol2File(
-        ##peptideFlag     f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.mol2', removeHs=False
-        ##peptideFlag )
-        ##peptideFlag polypeptide_mol = Molecule.from_rdkit(polypeptide_rd)
-        
+        # Preprocess polypeptide PDB: fix atom names, reorder, add termini, and separate TB ion
+        polypeptide_pdb_path = f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.pdb'
 
-        ##peptideFlag mols = [water_mol] * 1000 + [cation_mol] + [cl_mol] * counterion_count + [polypeptide_mol]
-        ##peptideFlag topology = Topology.from_molecules(mols)
-        ##peptideFlag topology.box_vectors = np.eye(3) * box_length * unit.nanometer
-        mols = [water_mol] * 1000 + [cation_mol] + [cl_mol] * counterion_count 
-        topology = Topology.from_molecules(mols)
-        topology.box_vectors = np.eye(3) * box_length * unit.nanometer
+        # Read and parse PDB atoms by residue
+        residue_atoms = {}  # (chain, resnum, resname) -> list of atom lines
+        other_lines = []
+        tb_coords = None
+        nh2_n_coords = None  # Store NH2 N position to create OXT
+        nterm_info = {}  # Store N-terminal atom coords for adding H2, H3
+
+        with open(polypeptide_pdb_path, 'r') as f:
+            for line in f:
+                if line.startswith(('ATOM', 'HETATM')):
+                    atom_name = line[12:16].strip()
+                    res_name = line[17:20].strip()
+                    chain = line[21:22].strip() or 'A'
+                    res_num = int(line[22:26])
+
+                    # Skip TB ion
+                    if res_name == 'TB' or atom_name == 'TB':
+                        x = float(line[30:38])
+                        y = float(line[38:46])
+                        z = float(line[46:54])
+                        tb_coords = (x, y, z)
+                        continue
+
+                    # Capture NH2 N position for OXT placement, then skip
+                    if res_name == 'NH2':
+                        if atom_name == 'N':
+                            x = float(line[30:38])
+                            y = float(line[38:46])
+                            z = float(line[46:54])
+                            nh2_n_coords = (x, y, z)
+                        continue
+
+                    # Fix atom names for ASN residues
+                    if res_name == 'ASN':
+                        if atom_name == 'N0':
+                            line = line[:12] + ' ND2' + line[16:]
+                            atom_name = 'ND2'
+                        elif atom_name == 'HN21':
+                            line = line[:12] + 'HD21' + line[16:]
+                            atom_name = 'HD21'
+                        elif atom_name == 'HN22':
+                            line = line[:12] + 'HD22' + line[16:]
+                            atom_name = 'HD22'
+
+                    # Fix C-terminal ALA carboxylate atom names (OD1/OD2 -> O/OXT)
+                    if res_name == 'ALA':
+                        if atom_name == 'OD1':
+                            line = line[:12] + '   O' + line[16:]
+                            atom_name = 'O'
+                        elif atom_name == 'OD2':
+                            line = line[:12] + ' OXT' + line[16:]
+                            atom_name = 'OXT'
+
+                    # Rename HN to H1 for N-terminus compatibility
+                    if atom_name == 'HN':
+                        line = line[:12] + '  H1' + line[16:]
+                        atom_name = 'H1'
+                    # Also handle single H for N-terminus (rename to H1)
+                    if atom_name == 'H' and res_num == 99:  # N-terminal residue
+                        line = line[:12] + '  H1' + line[16:]
+                        atom_name = 'H1'
+
+                    key = (chain, res_num, res_name)
+                    if key not in residue_atoms:
+                        residue_atoms[key] = []
+                    residue_atoms[key].append(line)
+
+                    # Store terminal atom info for adding missing hydrogens/OXT
+                    if atom_name in ('N', 'H1', 'H2', 'H3', 'CA', 'OXT'):
+                        x = float(line[30:38])
+                        y = float(line[38:46])
+                        z = float(line[46:54])
+                        if key not in nterm_info:
+                            nterm_info[key] = {}
+                        nterm_info[key][atom_name] = np.array([x, y, z])
+
+                elif line.startswith('CRYST1'):
+                    other_lines.append(line)
+
+        # Sort residues by chain and residue number
+        sorted_keys = sorted(residue_atoms.keys(), key=lambda x: (x[0], x[1]))
+
+        # Find terminal residues
+        n_term_key = sorted_keys[0]
+        c_term_key = sorted_keys[-1]
+
+        # Generate H2, H3 positions for N-terminus (approximate tetrahedral geometry)
+        def generate_nterm_hydrogens(n_pos, h1_pos, ca_pos):
+            """Generate H2, H3 positions for NH3+ terminus."""
+            # Vector from N to H1
+            n_to_h1 = h1_pos - n_pos
+            n_to_h1 = n_to_h1 / np.linalg.norm(n_to_h1)
+
+            # Vector from N to CA
+            n_to_ca = ca_pos - n_pos
+            n_to_ca = n_to_ca / np.linalg.norm(n_to_ca)
+
+            # Create perpendicular vectors for tetrahedral arrangement
+            perp1 = np.cross(n_to_h1, n_to_ca)
+            perp1 = perp1 / np.linalg.norm(perp1)
+            perp2 = np.cross(n_to_h1, perp1)
+            perp2 = perp2 / np.linalg.norm(perp2)
+
+            # N-H bond length (~1.01 Å)
+            bond_len = 1.01
+
+            # Tetrahedral angle offset
+            h2_dir = -0.33 * n_to_h1 + 0.94 * perp1
+            h3_dir = -0.33 * n_to_h1 - 0.47 * perp1 + 0.81 * perp2
+
+            h2_pos = n_pos + bond_len * h2_dir / np.linalg.norm(h2_dir)
+            h3_pos = n_pos + bond_len * h3_dir / np.linalg.norm(h3_dir)
+
+            return h2_pos, h3_pos
+
+        cleaned_pdb_path = 'peptide_cleaned.pdb'
+        with open(cleaned_pdb_path, 'w') as f:
+            # Write CRYST1 if present
+            for line in other_lines:
+                f.write(line)
+
+            # Write atoms in proper residue order, renumbering atoms
+            atom_serial = 1
+            for key in sorted_keys:
+                for line in residue_atoms[key]:
+                    new_line = f'{line[:6]}{atom_serial:5d}{line[11:]}'
+                    f.write(new_line)
+                    atom_serial += 1
+
+                # Add H2, H3 for N-terminal NH3+ (only if not already present)
+                if key == n_term_key and key in nterm_info:
+                    info = nterm_info[key]
+                    # Only add missing hydrogens
+                    if 'N' in info and 'H1' in info and 'CA' in info:
+                        if 'H2' not in info or 'H3' not in info:
+                            h2_pos, h3_pos = generate_nterm_hydrogens(info['N'], info['H1'], info['CA'])
+                            chain, res_num, res_name = key
+                            if 'H2' not in info:
+                                h2_line = f'ATOM  {atom_serial:5d}  H2  {res_name:3s} {chain:1s}{res_num:4d}    {h2_pos[0]:8.3f}{h2_pos[1]:8.3f}{h2_pos[2]:8.3f}  1.00  0.00           H\n'
+                                f.write(h2_line)
+                                atom_serial += 1
+                            if 'H3' not in info:
+                                h3_line = f'ATOM  {atom_serial:5d}  H3  {res_name:3s} {chain:1s}{res_num:4d}    {h3_pos[0]:8.3f}{h3_pos[1]:8.3f}{h3_pos[2]:8.3f}  1.00  0.00           H\n'
+                                f.write(h3_line)
+                                atom_serial += 1
+
+                # Add OXT atom for C-terminal carboxylate (only if not already present)
+                if key == c_term_key:
+                    cterm_info = nterm_info.get(key, {})
+                    if 'OXT' not in cterm_info and nh2_n_coords is not None:
+                        chain, res_num, res_name = key
+                        oxt_line = f'ATOM  {atom_serial:5d}  OXT {res_name:3s} {chain:1s}{res_num:4d}    {nh2_n_coords[0]:8.3f}{nh2_n_coords[1]:8.3f}{nh2_n_coords[2]:8.3f}  1.00  0.00           O\n'
+                        f.write(oxt_line)
+                        atom_serial += 1
+
+            f.write('TER\n')
+            f.write('END\n')
+
+        # Create TB ion as a molecule (will use custom_ree.offxml for parameters)
+        tb_mol = Molecule.from_smiles('[Tb+3]')
+        tb_mol.atoms[0].formal_charge = 3 * unit.elementary_charge
+        # Add conformer with position from original PDB
+        if tb_coords is not None:
+            tb_mol.add_conformer(np.array([tb_coords]) * unit.angstrom)
+
+        # Load polypeptide topology - now should have standard amino acids with proper C-terminus
+        polypeptide_topology = Topology.from_pdb(cleaned_pdb_path)
+
+        # Add TB ion to the topology
+        tb_topology = Topology.from_molecules([tb_mol])
+        for mol in tb_topology.molecules:
+            polypeptide_topology.add_molecule(mol)
+
+        # Pack the box using OpenFF's pack_box
+        topology = pack_box(
+            molecules=[water_mol, cation_mol, cl_mol],
+            number_of_copies=[1000, 1, counterion_count],
+            solute=polypeptide_topology,
+            box_vectors=np.eye(3) * box_length * unit.nanometer,
+        )
 
         ff = ForceField(
-            ##peptideFlag 'ff14sb_off_impropers_0.0.4.offxml',   # protein residue typing + library charges
+            'ff14sb_off_impropers_0.0.4.offxml',   # protein residue typing + library charges
             'tip3p.offxml',                          # water
-            f'{names.PROJECT_DIR}/files/xml/custom_ree.offxml'  # your REE ions
+            f'{names.PROJECT_DIR}/files/xml/custom_ree.offxml'  # REE ions (including TB in peptide)
         )
-        
+
         interchange = ff.create_interchange(topology)
-        interchange.positions = starting_box.xyz * unit.nanometer
         interchange.to_gromacs(prefix='init')
 
         if os.path.exists('init_pointenergy.mdp'):
@@ -162,28 +310,6 @@ def build_input(job):
         nd.names = [job.sp.metal]
         nd.residues.resnames = [job.sp.metal]
         u.atoms.write(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
-
-        ####system_mb = mbuild.load(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
-        #### cation_mb = mbuild.load(
-        ####     f"{names.PROJECT_DIR}/files/coordinates/metal_cations/{job.sp.metal}.mol2"
-        #### )
-        #### cation_mb.name = job.sp.metal
-        
-        #### # locate Nd placeholder
-        #### surrogate_Nd = next(
-        ####     particle for particle in system_mb.particles()
-        ####     if particle.name == "Nd" or particle.element.symbol == "Nd"
-        #### )
-        #### surrogate_Nd.name = cation_mb.name
-        #### surrogate_Nd.element = cation_mb.element
-        ## place replacement cation at Nd coordinates
-        ####cation_mb.translate_to(surrogate_Nd.pos)
-        #### remove Nd particle
-        ####system_mb.remove(surrogate_Nd)
-        ####
-        #### insert replacement
-        ####system_mb.add(cation_mb)
-        ####system_mb.save(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro", overwrite=True)
 
     local_eleLam_ljLam_to_initLam = names.eleLam_ljLam_to_initLam
     current_lambda = local_eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
@@ -286,28 +412,28 @@ def build_input(job):
     )
 
 
-##peptideFlag @FlowProject.pre(eq_nvt_post)
-##peptideFlag @FlowProject.pre(init_written)
-##peptideFlag @FlowProject.pre(mdp_written)
-##peptideFlag @FlowProject.post(eq_nvt_post)
-##peptideFlag @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": MID_HOURS}, with_job=True, cmd=True)
-##peptideFlag def EQ_NVT(job):
-##peptideFlag     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NVT}.mdp -c init.gro -p init.top -o {names.NAME_EQ_NVT}.tpr -maxwarn 99')
-##peptideFlag     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NVT}')
-##peptideFlag     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
-##peptideFlag     return run_command
-##peptideFlag 
-##peptideFlag 
-##peptideFlag @FlowProject.pre(init_written)
-##peptideFlag @FlowProject.pre(mdp_written)
-##peptideFlag @FlowProject.pre(eq_nvt_post)
-##peptideFlag @FlowProject.post(eq_npt_post_beren)
-##peptideFlag @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
-##peptideFlag def EQ_NPT_BERENDSEN(job):
-##peptideFlag     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NPT_BERENDSEN}.mdp -c {names.NAME_EQ_NVT}.gro -p init.top -o {names.NAME_EQ_NPT_BERENDSEN}.tpr -maxwarn 99')
-##peptideFlag     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NPT_BERENDSEN}')
-##peptideFlag     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
-##peptideFlag     return run_command
+@FlowProject.pre(eq_nvt_post)
+@FlowProject.pre(init_written)
+@FlowProject.pre(mdp_written)
+@FlowProject.post(eq_nvt_post)
+@FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": MID_HOURS}, with_job=True, cmd=True)
+def EQ_NVT(job):
+    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NVT}.mdp -c init.gro -p init.top -o {names.NAME_EQ_NVT}.tpr -maxwarn 99')
+    run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NVT}')
+    run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
+    return run_command
+
+
+@FlowProject.pre(init_written)
+@FlowProject.pre(mdp_written)
+@FlowProject.pre(eq_nvt_post)
+@FlowProject.post(eq_npt_post_beren)
+@FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
+def EQ_NPT_BERENDSEN(job):
+    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_NPT_BERENDSEN}.mdp -c {names.NAME_EQ_NVT}.gro -p init.top -o {names.NAME_EQ_NPT_BERENDSEN}.tpr -maxwarn 99')
+    run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_NPT_BERENDSEN}')
+    run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
+    return run_command
 
 
 @FlowProject.pre(init_written)
@@ -316,7 +442,7 @@ def build_input(job):
 @FlowProject.post(eq_canon_post)
 @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
 def EQ_CANON(job):
-    ##peptideFlag build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
+    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_PRE_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_CANON}')
     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
