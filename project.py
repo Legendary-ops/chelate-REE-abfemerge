@@ -80,8 +80,17 @@ def build_input(job):
 
         conda_bin = os.path.dirname(sys.executable)
         os.environ['PATH'] = f'{conda_bin}:{os.environ.get("PATH", "")}'
+        
+        metal_ion_charge = 4 if job.sp.metal in ('U', 'Hf') else 3
+        polypeptide_charge = -3 if job.sp.polypeptide == 'LBT3-' else -5
 
-        counterion_count = 4 if job.sp.metal in ('U', 'Hf') else 3
+        net_ion_charge = metal_ion_charge + polypeptide_charge; net_ion_charge=int(net_ion_charge)
+        if net_ion_charge > 0:
+            counterion_str = 'Cl'
+        elif net_ion_charge < 0:
+            counterion_str = 'Li'
+        counterion_count = abs(net_ion_charge)
+
         box_length = 10.0
 
         # Load small molecules via RDKit
@@ -90,11 +99,15 @@ def build_input(job):
         )
         water_mol = Molecule.from_rdkit(water_rd)
 
-        cl_rd = Chem.MolFromMol2File(
-            f'{names.PROJECT_DIR}/files/coordinates/neutralizing_anions/Cl.mol2', removeHs=False
-        )
-        cl_mol = Molecule.from_rdkit(cl_rd)
-        cl_mol.atoms[0].formal_charge = -1 * unit.elementary_charge
+        if counterion_count != 0:
+            li_rd = Chem.MolFromMol2File(
+                f'{names.PROJECT_DIR}/files/coordinates/neutralizing_ions/{counterion_str}.mol2', removeHs=False
+            )
+            li_mol = Molecule.from_rdkit(li_rd)
+            if 'Cl' in counterion_str:
+                li_mol.atoms[0].formal_charge = -1 * unit.elementary_charge
+            elif 'Li' in counterion_str:
+                li_mol.atoms[0].formal_charge = 1 * unit.elementary_charge
 
         cation_rd = Chem.MolFromMol2File(
             f'{names.PROJECT_DIR}/files/coordinates/metal_cations/{job.sp.metal}.mol2', removeHs=False
@@ -278,10 +291,17 @@ def build_input(job):
         for mol in tb_topology.molecules:
             polypeptide_topology.add_molecule(mol)
 
+        if counterion_count != 0:
+            molecules_dummy=[water_mol, cation_mol, li_mol],
+            number_of_copies_dummy=[1000, 1, counterion_count],
+        else: 
+            molecules_dummy=[water_mol, cation_mol],
+            number_of_copies_dummy=[1000, 1],
+
         # Pack the box using OpenFF's pack_box
         topology = pack_box(
-            molecules=[water_mol, cation_mol, cl_mol],
-            number_of_copies=[1000, 1, counterion_count],
+            molecules=molecules_dummy,
+            number_of_copies=number_of_copies_dummy,
             solute=polypeptide_topology,
             box_vectors=np.eye(3) * box_length * unit.nanometer,
         )
