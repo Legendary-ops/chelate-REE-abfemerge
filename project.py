@@ -292,11 +292,11 @@ def build_input(job):
             polypeptide_topology.add_molecule(mol)
 
         if counterion_count != 0:
-            molecules_dummy=[water_mol, cation_mol, li_mol],
-            number_of_copies_dummy=[1000, 1, counterion_count],
-        else: 
-            molecules_dummy=[water_mol, cation_mol],
-            number_of_copies_dummy=[1000, 1],
+            molecules_dummy = [water_mol, cation_mol, li_mol]
+            number_of_copies_dummy = [1000, 1, counterion_count]
+        else:
+            molecules_dummy = [water_mol, cation_mol]
+            number_of_copies_dummy = [1000, 1]
 
         # Pack the box using OpenFF's pack_box
         topology = pack_box(
