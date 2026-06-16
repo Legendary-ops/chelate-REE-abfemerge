@@ -287,7 +287,7 @@ def build_input(job):
     )
 
 
-@FlowProject.pre(eq_nvt_post)
+#@FlowProject.pre(eq_nvt_post)
 @FlowProject.pre(init_written)
 @FlowProject.pre(mdp_written)
 @FlowProject.post(eq_nvt_post)
