@@ -14,6 +14,7 @@ lambda_LJ  = sorted({lj for ele, lj in local_eleLam_ljLam_to_initLam})
 metal = ['Nd']
 polypeptide = ['LBT3-', 'LBT5-']
 replicate = [0] # , 1, 2]
+unNested_usesTemplates = False
 
 
 total_statepoints = list()
@@ -32,7 +33,8 @@ for i in range(len(metal)):
                             "replicate": replicate[j],
                             "lambda_LJ": lambda_LJ[l],
                             "lambda_ELE": lambda_ELE[k],
-                            "polypeptide": polypeptide[m]
+                            "polypeptide": polypeptide[m],
+                            "unNested_usesTemplates": unNested_usesTemplates
                         }
                         total_statepoints.append(statepoint)
             else:
@@ -42,7 +44,8 @@ for i in range(len(metal)):
                         "replicate": replicate[j],
                         "lambda_LJ": lambda_LJ[0],
                         "lambda_ELE": lambda_ELE[k],
-                        "polypeptide": polypeptide[m]
+                        "polypeptide": polypeptide[m],
+                        "unNested_usesTemplates": unNested_usesTemplates
                     }
                     total_statepoints.append(statepoint)
 

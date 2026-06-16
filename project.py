@@ -35,7 +35,8 @@ from files.python_files.job_tester import (
     mdp_written,
     eq_nvt_post,
     eq_npt_post_beren,
-    pre_equilibrated,
+    runWithTemplateAbsent,
+    templatedOrEquilibrated,
     eq_canon_post,
     pro_canon_post,
     free_energy_bar_copied,
@@ -179,12 +180,13 @@ def build_input(job):
             f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro"
         )
 
-        import MDAnalysis as mda
-        u = mda.Universe(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
-        nd = u.select_atoms("name Nd")
-        nd.names = [job.sp.metal]
-        nd.residues.resnames = [job.sp.metal]
-        u.atoms.write(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+        if job.sp.unNested_usesTemplates:
+            import MDAnalysis as mda
+            u = mda.Universe(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+            nd = u.select_atoms("name Nd")
+            nd.names = [job.sp.metal]
+            nd.residues.resnames = [job.sp.metal]
+            u.atoms.write(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
 
     local_eleLam_ljLam_to_initLam = names.eleLam_ljLam_to_initLam
     current_lambda = local_eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
@@ -287,7 +289,7 @@ def build_input(job):
     )
 
 
-#@FlowProject.pre(eq_nvt_post)
+@FlowProject.pre(runWithTemplateAbsent)
 @FlowProject.pre(init_written)
 @FlowProject.pre(mdp_written)
 @FlowProject.post(eq_nvt_post)
@@ -298,7 +300,7 @@ def EQ_NVT(job):
     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
     return run_command
 
-
+@FlowProject.pre(runWithTemplateAbsent)
 @FlowProject.pre(init_written)
 @FlowProject.pre(mdp_written)
 @FlowProject.pre(eq_nvt_post)
@@ -313,7 +315,7 @@ def EQ_NPT_BERENDSEN(job):
 
 @FlowProject.pre(init_written)
 @FlowProject.pre(mdp_written)
-@FlowProject.pre(pre_equilibrated)
+@FlowProject.pre(templatedOrEquilibrated)
 @FlowProject.post(eq_canon_post)
 @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
 def EQ_CANON(job):

@@ -23,6 +23,11 @@ import shutil
 from files.python_files import names
 
 
+# GROMACS log file status strings
+finished_gmxStr = "Finished mdrun on "
+failed_gmxStr_start = "Received the "
+failed_gmxStr_end = " signal, stopping within"
+
 extension_list_of_common_files = [".gro", ".trr", ".log", ".edr", ".tpr"]   # former extension_list_list
 extension_list_inits = [".gro",".top"]
 
@@ -86,13 +91,27 @@ def run_only_one(job):
         test_passed = True
     return test_passed
 
-
-def important_jobs(job):
+def runWithTemplateAbsent(job):
     test_passed = False
-    if job.sp.replicas < 1:
-        #if 'PME' in job.sp.cut_type:
-            test_passed = True
+    if not job.sp.unNested_usesTemplates:
+        test_passed = True
     return test_passed
+
+
+def gmx_log_finished(job, log_filename):
+    """Check if GROMACS log file indicates successful completion (reads from end)."""
+    with job:
+        if not job.isfile(log_filename):
+            return False
+        with open(log_filename, "r") as f:
+            lines = f.readlines()
+        # Read from end for efficiency
+        for line in reversed(lines):
+            if failed_gmxStr_start in line and failed_gmxStr_end in line:
+                return False
+            if finished_gmxStr in line:
+                return True
+    return False
 
 ############################__BUILD_JOBS__############################
 
@@ -141,76 +160,33 @@ def pre_equilibrated(job):
                     break
     return test_passed
 
+
+def templatedOrEquilibrated(job):
+    """Check if job uses pre-equilibrated template OR has completed NPT equilibration."""
+    if job.sp.unNested_usesTemplates:
+        return pre_equilibrated(job)
+    else:
+        return gmx_log_finished(job, f"{names.NAME_EQ_NPT_BERENDSEN}.log")
+
+
 @FlowProject.label
 def eq_nvt_post(job):
-    with job:
-        test_passed = False
-        if job.isfile(f"{names.NAME_EQ_NVT}.log"):
-            with open(f"{names.NAME_EQ_NVT}.log", "r") as file_with_lines:
-                lines = file_with_lines.readlines()
-            for single_line in lines:
-                if "Received the " in single_line:
-                    if " signal, stopping within" in single_line:
-                        test_passed = False
-                        break
-                if "Finished mdrun on " in single_line:
-                    test_passed = True
-                    break
-    return test_passed
+    return gmx_log_finished(job, f"{names.NAME_EQ_NVT}.log")
 
 
 @FlowProject.label
 def eq_npt_post_beren(job):
-    with job:
-        test_passed = False
-        if job.isfile(f"{names.NAME_EQ_NPT_BERENDSEN}.log"):
-            with open(f"{names.NAME_EQ_NPT_BERENDSEN}.log", "r") as file_with_lines:
-                lines = file_with_lines.readlines()
-            for single_line in lines:
-                if "Received the " in single_line:
-                    if " signal, stopping within" in single_line:
-                        test_passed = False
-                        break
-                if "Finished mdrun on " in single_line:
-                    test_passed = True
-                    break
-    return test_passed
+    return gmx_log_finished(job, f"{names.NAME_EQ_NPT_BERENDSEN}.log")
 
 
 @FlowProject.label
 def eq_canon_post(job):
-    with job:
-        test_passed = False
-        if job.isfile(f"{names.NAME_EQ_CANON}.log"):
-            with open(f"{names.NAME_EQ_CANON}.log", "r") as file_with_lines:
-                lines = file_with_lines.readlines()
-            for single_line in lines:
-                if "Received the " in single_line:
-                    if " signal, stopping within" in single_line:
-                        test_passed = False
-                        break
-                if "Finished mdrun on " in single_line:
-                    test_passed = True
-                    break
-    return test_passed
+    return gmx_log_finished(job, f"{names.NAME_EQ_CANON}.log")
 
 
 @FlowProject.label
 def pro_canon_post(job):
-    with job:
-        test_passed = False
-        if job.isfile(f"{names.NAME_PRO_CANON}.log"):
-            with open(f"{names.NAME_PRO_CANON}.log", "r") as file_with_lines:
-                lines = file_with_lines.readlines()
-            for single_line in lines:
-                if "Received the " in single_line:
-                    if " signal, stopping within" in single_line:
-                        test_passed = False
-                        break
-                if "Finished mdrun on " in single_line:
-                    test_passed = True
-                    break
-    return test_passed
+    return gmx_log_finished(job, f"{names.NAME_PRO_CANON}.log")
 
 
 @FlowProject.label
