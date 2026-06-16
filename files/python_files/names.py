@@ -96,6 +96,9 @@ RCUT = 1.4
 GENERAL_LOCAL_DATA = 'raw_general_data_for'
 GENERAL_GLOBAL_DATA = 'aggregate_general_Data'
 
+# Polypeptide PDB file naming
+CLEANED_PDB_SUFFIX = "_cleanedPDB"
+
 # Electrostatic and LJ lambda mapping lookup dict (Renamed from ljLam_eleLam_to_initLam)
 # First element of the tuple is electrostatic lambda, second is Lennard-Jones lambda
 eleLam_ljLam_to_initLam = {
