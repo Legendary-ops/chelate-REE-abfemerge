@@ -16,7 +16,7 @@ import numpy as np
 # pyrefly: ignore [missing-import]
 import signac
 # pyrefly: ignore [missing-import]
-from flow import FlowProject
+from flow import FlowProject, aggregator
 # pyrefly: ignore [missing-import]
 from flow.environment import DefaultSlurmEnvironment
 import os
@@ -40,7 +40,9 @@ from files.python_files.job_tester import (
     eq_canon_post,
     pro_canon_post,
     free_energy_bar_copied,
-    data_collected
+    data_collected,
+    xvg_present_for_all,
+    aggregated_data_present
 )
 
 # Cores configuration
@@ -488,6 +490,40 @@ def GRAPH_AND_COLLECT_PROPERTIES(job):
         plt.tight_layout()
         plt.savefig(f'{names.GENERAL_LOCAL_DATA}_{names.NAME_PRO_CANON}.png')
         plt.close()
+
+
+@FlowProject.pre(xvg_present_for_all)
+@FlowProject.post(aggregated_data_present)
+@FlowProject.operation(
+    directives={"np": int(ANA_CORES), "ngpu": 0, "memory": 3.2, "walltime": MIN_HOURS},
+    aggregator=aggregator.groupby(key=lambda job: (job.sp.metal, job.sp.polypeptide, job.sp.unNested_usesTemplates, job.sp.replicate))
+)
+def AGGREGATE_FREE_ENERGY(*jobs):
+    group_parts = [str(jobs[0].sp.metal)]
+    if getattr(jobs[0].sp, 'polypeptide', None):
+        group_parts.append(str(jobs[0].sp.polypeptide))
+    group_parts.append(str(jobs[0].sp.replicate))
+    group_parts.append(str(jobs[0].sp.unNested_usesTemplates))
+    group_name = "_".join(group_parts)
+    target_dir = os.path.join(names.PROJECT_DIR, names.ANALYSIS_DIR_PREFIX, group_name)
+    os.makedirs(target_dir, exist_ok=True)
+    
+    for job in jobs:
+        current_lambda = names.eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
+        
+        xvg_src = job.fn(f'{names.NAME_PRO_CANON}_{current_lambda}.xvg')
+        mdp_src = job.fn(f'{names.NAME_PRO_CANON}.mdp')
+        
+        if os.path.exists(xvg_src):
+            subprocess.run(f"cp -v {xvg_src} {target_dir}/", shell=True)
+        if os.path.exists(mdp_src):
+            subprocess.run(f"cp -v {mdp_src} {target_dir}/{names.NAME_PRO_CANON}_{current_lambda}.mdp", shell=True)
+
+    mbar_val, mbar_err = misc_funct.calculate_free_energy(target_dir)
+
+    output_file = os.path.join(names.PROJECT_DIR, "aggregated_free_energy.txt")
+    with open(output_file, 'a') as f:
+        f.write(f"{group_name}: {mbar_val} +/- {mbar_err}\n")
 
 
 if __name__ == '__main__':
