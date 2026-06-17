@@ -210,3 +210,36 @@ def data_collected(job):
             if job.id in contents:
                 test_passed = True
     return test_passed
+
+def xvg_present_for_all(*jobs):
+    test_passed = True
+    for job in jobs:
+        with job:
+            if job.isfile(f'{names.NAME_PRO_CANON}.xvg'):
+                current_lambda = names.eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
+                if not job.isfile(f'{names.NAME_PRO_CANON}_{current_lambda}.xvg'):
+                    test_passed = False
+                    break
+            else:
+                test_passed = False
+                break
+    return test_passed
+
+def aggregated_data_present(*jobs):
+    test_passed = False
+    group_parts = [str(jobs[0].sp.metal)]
+    if getattr(jobs[0].sp, 'polypeptide', None):
+        group_parts.append(str(jobs[0].sp.polypeptide))
+    group_parts.append(str(jobs[0].sp.replicate))
+    group_parts.append(str(jobs[0].sp.unNested_usesTemplates))
+    group_name = "_".join(group_parts)
+    target_dir = os.path.join(names.PROJECT_DIR, names.ANALYSIS_DIR_PREFIX, group_name)
+    output_file = os.path.join(names.PROJECT_DIR, "aggregated_free_energy.txt")
+    
+    if os.path.exists(target_dir):
+        if os.path.exists(os.path.join(target_dir, f"{names.GENERAL_FILE_PREFIX}.txt")):
+            if os.path.exists(output_file):
+                with open(output_file, 'r') as f:
+                    if group_name in f.read():
+                        test_passed = True
+    return test_passed
