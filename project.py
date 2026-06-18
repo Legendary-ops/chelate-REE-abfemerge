@@ -123,39 +123,43 @@ def build_input(job):
         cation_mol = Molecule.from_rdkit(cation_rd)
         cation_mol.atoms[0].formal_charge = names.METAL_FORMAL_CHARGES[job.sp.metal] * unit.elementary_charge
 
-        # Extract TB ion coordinates from original PDB (TB is removed from cleaned files)
-        original_pdb_path = f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.pdb'
-        tb_coords = None
-        with open(original_pdb_path, 'r') as f:
-            for line in f:
-                if line.startswith(('ATOM', 'HETATM')):
-                    atom_name = line[12:16].strip()
-                    res_name = line[17:20].strip()
-                    if res_name == 'TB' or atom_name == 'TB':
-                        tb_coords = (
-                            float(line[30:38]),
-                            float(line[38:46]),
-                            float(line[46:54])
-                        )
-                        break
-
-        # Create TB ion molecule with position from original PDB
-        tb_mol = Molecule.from_smiles('[Tb+3]')
-        tb_mol.atoms[0].formal_charge = 3 * unit.elementary_charge
-        if tb_coords is not None:
-            tb_mol.add_conformer(np.array([tb_coords]) * unit.angstrom)
-
-        # Load pre-cleaned polypeptide topology (cleaned by unscrew_polypeptide.py)
-        cleaned_pdb_path = f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}{names.CLEANED_PDB_SUFFIX}.pdb'
-        polypeptide_topology = Topology.from_pdb(cleaned_pdb_path)
-
-        # Add TB ion to the topology
-        tb_topology = Topology.from_molecules([tb_mol])
+        # Handle dummy (pure ion + water) vs polypeptide cases
         if job.sp.polypeptide == 'DUM3+':
-            polypeptide_topology = tb_topology
+            # Dummy case: no polypeptide, just ion in water (no solute for pack_box)
+            solute_topology = None
         else:
+            # Extract TB ion coordinates from original PDB (TB is removed from cleaned files)
+            original_pdb_path = f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}.pdb'
+            tb_coords = None
+            with open(original_pdb_path, 'r') as f:
+                for line in f:
+                    if line.startswith(('ATOM', 'HETATM')):
+                        atom_name = line[12:16].strip()
+                        res_name = line[17:20].strip()
+                        if res_name == 'TB' or atom_name == 'TB':
+                            tb_coords = (
+                                float(line[30:38]),
+                                float(line[38:46]),
+                                float(line[46:54])
+                            )
+                            break
+
+            # Create TB ion molecule with position from original PDB
+            tb_mol = Molecule.from_smiles('[Tb+3]')
+            tb_mol.atoms[0].formal_charge = 3 * unit.elementary_charge
+            if tb_coords is not None:
+                tb_mol.add_conformer(np.array([tb_coords]) * unit.angstrom)
+
+            # Load pre-cleaned polypeptide topology (cleaned by unscrew_polypeptide.py)
+            cleaned_pdb_path = f'{names.PROJECT_DIR}/files/coordinates/polypeptide/{job.sp.polypeptide}{names.CLEANED_PDB_SUFFIX}.pdb'
+            polypeptide_topology = Topology.from_pdb(cleaned_pdb_path)
+
+            # Add TB ion to the topology
+            tb_topology = Topology.from_molecules([tb_mol])
             for mol in tb_topology.molecules:
                 polypeptide_topology.add_molecule(mol)
+
+            solute_topology = polypeptide_topology
 
         if counterion_count != 0:
             molecules_dummy = [water_mol, cation_mol, li_mol]
@@ -168,7 +172,7 @@ def build_input(job):
         topology = pack_box(
             molecules=molecules_dummy,
             number_of_copies=number_of_copies_dummy,
-            solute=polypeptide_topology,
+            solute=solute_topology,
             box_vectors=np.eye(3) * box_length * unit.nanometer,
         )
 
@@ -330,7 +334,7 @@ def EQ_NPT_BERENDSEN(job):
 @FlowProject.operation(directives={"np": int(SIM_CORES), "ngpu": 1, "memory": 3.2, "walltime": TWO_DAYS}, with_job=True, cmd=True)
 def EQ_CANON(job):
     build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
-    build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_PRE_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
+    # build_mdp = str(f'{names.GMX_PREFIX} grompp -f {names.NAME_EQ_CANON}.mdp -c {names.NAME_PRE_EQ_NPT_BERENDSEN}.gro -p init.top -o {names.NAME_EQ_CANON}.tpr -maxwarn 99')
     run_gmx = str(f'{names.GMX_PREFIX} mdrun -nt {SIM_CORES} -deffnm {names.NAME_EQ_CANON}')
     run_command = str(f'{build_mdp}; sleep 2; {run_gmx}')
     return run_command
