@@ -102,11 +102,7 @@ CLEANED_PDB_SUFFIX = "_cleanedPDB"
 # Electrostatic and LJ lambda mapping lookup dict (Renamed from ljLam_eleLam_to_initLam)
 # First element of the tuple is electrostatic lambda, second is Lennard-Jones lambda
 eleLam_ljLam_to_initLam = {
- (0.0,    0.0): 0,
- (0.5,    0.0): 1,
- (1.0,    0.0): 2,
- (1.0,    0.5): 3, 
- (1.0,    1.0): 4
+ (0.0,    0.0): 0
     }
 
 # Analysis constants
