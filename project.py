@@ -195,12 +195,21 @@ def build_input(job):
         )
 
         if job.sp.unNested_usesTemplates:
-            import MDAnalysis as mda
-            u = mda.Universe(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
-            nd = u.select_atoms("name Tb")
-            nd.names = [job.sp.metal]
-            nd.residues.resnames = [job.sp.metal]
-            u.atoms.write(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+            try:
+                import MDAnalysis as mda
+                u = mda.Universe(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+                nd = u.select_atoms("name Tb")
+                nd.names = [job.sp.metal]
+                nd.residues.resnames = [job.sp.metal]
+                u.atoms.write(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
+            except:
+                # Fallback: simple string replacement (no MDAnalysis needed)
+                gro_file = f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro"
+                with open(gro_file, 'r') as f:
+                    content = f.read()
+                content = content.replace("Tb", job.sp.metal)
+                with open(gro_file, 'w') as f:
+                    f.write(content)
 
     local_eleLam_ljLam_to_initLam = names.eleLam_ljLam_to_initLam
     current_lambda = local_eleLam_ljLam_to_initLam[round(job.sp.lambda_ELE, 5), round(job.sp.lambda_LJ, 5)]
