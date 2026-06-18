@@ -85,7 +85,12 @@ def build_input(job):
         os.environ['PATH'] = f'{conda_bin}:{os.environ.get("PATH", "")}'
         
         metal_ion_charge = 4 if job.sp.metal in ('U', 'Hf') else 3
-        polypeptide_charge = -3 if job.sp.polypeptide == 'LBT3-' else -5
+        if job.sp.polypeptide == 'LBT3-':
+            polypeptide_charge = -3
+        elif job.sp.polypeptide == 'LBT5-':
+            polypeptide_charge = -5
+        elif job.sp.polypeptide == 'DUM3+':
+            polypeptide_charge = 0
 
         net_ion_charge = metal_ion_charge + polypeptide_charge; net_ion_charge=int(net_ion_charge)
         if net_ion_charge > 0:
@@ -94,7 +99,7 @@ def build_input(job):
             counterion_str = 'Li'
         counterion_count = abs(net_ion_charge)
 
-        box_length = 10.0
+        box_length = 3.5
 
         # Load small molecules via RDKit
         water_rd = Chem.MolFromMol2File(
@@ -146,8 +151,11 @@ def build_input(job):
 
         # Add TB ion to the topology
         tb_topology = Topology.from_molecules([tb_mol])
-        for mol in tb_topology.molecules:
-            polypeptide_topology.add_molecule(mol)
+        if job.sp.polypeptide == 'DUM3+':
+            polypeptide_topology = tb_topology
+        else:
+            for mol in tb_topology.molecules:
+                polypeptide_topology.add_molecule(mol)
 
         if counterion_count != 0:
             molecules_dummy = [water_mol, cation_mol, li_mol]
