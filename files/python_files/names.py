@@ -64,30 +64,31 @@ METAL_FORMAL_CHARGES = {
 }
 
 # GROMACS MD steps and output controls
-SMALL_EQ_STEPS      =int(20000)# int(1000000)
+SMALL_EQ_STEPS      =int(500000)# int(1000000)
 # MID_EQ_STEPS renamed to follow SIM core naming standard
-MID_EQ_STEPS        = int(2000000)
-LONG_EQ_STEPS       = int(10000000)
-SLOW_OUTPUT         = int(1000) # 10000
-NORMAL_CALC         = int(100)
+MID_EQ_STEPS        = int(1000000)
+LONG_EQ_STEPS       = int(2000000)
+SLOW_OUTPUT         = int(10000) # 10000
+NORMAL_CALC         = int(500)
 
-PRO_STEPS             = int(20000)# int(500000)
-PRO_FREE_ENERGY_STEPS = int(20000)# int(500000)
-FAST_OUTPUT           = int(250) # 2000
+PRO_STEPS             = int(500000)# int(500000)
+PRO_FREE_ENERGY_STEPS = int(500000)# int(500000)
+FAST_OUTPUT           = int(1000) # 2000
+PRO_DHDL              = int(1000)
 FAST_CALC             = int(100)
 
-## # GROMACS MD steps and output controls
-## SMALL_EQ_STEPS      = int(10000)
-## # MID_EQ_STEPS renamed to follow SIM core naming standard
-## MID_EQ_STEPS        = int(10000)
-## LONG_EQ_STEPS       = int(10000)
-## SLOW_OUTPUT         = int(1000)
-## NORMAL_CALC         = int(100)
-## 
-## PRO_STEPS             = int(10000)
-## PRO_FREE_ENERGY_STEPS = int(10000)
-## FAST_OUTPUT           = int(1000)
-## FAST_CALC             = int(100)
+### GROMACS MD steps and output controls
+##SMALL_EQ_STEPS      = int(1000)
+### MID_EQ_STEPS renamed to follow SIM core naming standard
+##MID_EQ_STEPS        = int(1000)
+##LONG_EQ_STEPS       = int(1000)
+##SLOW_OUTPUT         = int(100)
+##NORMAL_CALC         = int(10)
+##
+##PRO_STEPS             = int(1000)
+##PRO_FREE_ENERGY_STEPS = int(1000)
+##FAST_OUTPUT           = int(100)
+##FAST_CALC             = int(10)
 
 # Cut-off radius in nm
 RCUT = 1.4
@@ -102,22 +103,37 @@ CLEANED_PDB_SUFFIX = "_cleanedPDB"
 # Electrostatic and LJ lambda mapping lookup dict (Renamed from ljLam_eleLam_to_initLam)
 # First element of the tuple is electrostatic lambda, second is Lennard-Jones lambda
 eleLam_ljLam_to_initLam = {
- (0.0,    0.0): 0,
- (0.075,  0.0): 1,
- (0.150,  0.0): 2,
- (0.225,  0.0): 3,
- (0.3,    0.0): 4,
- (0.4,    0.0): 5,
- (0.5,    0.0): 6,
- (0.6,    0.0): 7,
- (0.7,    0.0): 8,
- (0.8,    0.0): 9,
- (0.9,    0.0): 10,
- (1.0,    0.0):  11,
- (1.0,    0.25): 12,    
- (1.0,    0.5):  13,   
- (1.0,    0.75): 14, 
- (1.0,    1.0):  15
+ (0.000, 0.0): 0,
+ #(0.025, 0.0): 1,
+ #(0.050, 0.0): 2,
+ #(0.075, 0.0): 3,
+ #(0.100, 0.0): 4,
+ #(0.125, 0.0): 5,
+ #(0.150, 0.0): 6,
+ #(0.175, 0.0): 7,
+ #(0.200, 0.0): 8,
+ #(0.225, 0.0): 9,
+ #(0.250, 0.0): 10,
+ #(0.300, 0.0): 11,
+ #(0.350, 0.0): 12,
+ #(0.400, 0.0): 13,
+ #(0.450, 0.0): 14,
+ #(0.500, 0.0): 15,
+ #(0.550, 0.0): 16,
+ #(0.600, 0.0): 17,
+ #(0.650, 0.0): 18,
+ #(0.700, 0.0): 19,
+ #(0.750, 0.0): 20,
+ #(0.800, 0.0): 21,
+ #(0.850, 0.0): 22,
+ #(0.900, 0.0): 23,
+ #(0.950, 0.0): 24,
+ #(0.975, 0.0): 25,
+ #(1.000, 0.0): 26,
+ #(1.0,    0.25): 27,    
+ #(1.0,    0.5):  28,   
+ #(1.0,    0.75): 39, 
+ #(1.0,    1.0):  30
     }
 
 # Analysis constants
