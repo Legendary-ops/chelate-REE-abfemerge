@@ -47,7 +47,7 @@ from files.python_files.job_tester import (
 
 # Cores configuration
 BUILD_CORES = 1
-SIM_CORES = 6
+SIM_CORES = 8
 ANA_CORES = 1
 
 # Walltimes configuration
@@ -197,7 +197,7 @@ def build_input(job):
         if job.sp.unNested_usesTemplates:
             import MDAnalysis as mda
             u = mda.Universe(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
-            nd = u.select_atoms("name Nd")
+            nd = u.select_atoms("name Tb")
             nd.names = [job.sp.metal]
             nd.residues.resnames = [job.sp.metal]
             u.atoms.write(f"{names.NAME_PRE_EQ_NPT_BERENDSEN}.gro")
@@ -284,10 +284,10 @@ def build_input(job):
     parameters.update({
         "nsteps": names.PRO_FREE_ENERGY_STEPS,
         "output_control": names.FAST_OUTPUT,
-        "nstcalcenergy": names.NORMAL_CALC,
+        "nstcalcenergy": names.FAST_CALC,
         "current_lambda": current_lambda,
         "molecule_of_interest": job.sp.metal,
-        "nstdhdl": int(names.NORMAL_CALC * 10),
+        "nstdhdl": int(names.PRO_DHDL),
         "lambda_index" : lambda_index,
         "coul_lambdas" : coul_lambdas,
         "vdw_lambdas"  : vdw_lambdas,
